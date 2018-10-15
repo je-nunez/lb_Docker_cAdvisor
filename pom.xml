@@ -1,0 +1,117 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>LbDockerCAdvisor</groupId>
+  <artifactId>LbDockerCAdvisor</artifactId>
+  <version>0.0.1</version>
+  <packaging>jar</packaging>
+
+  <name>an LB for Dockers using cAdvisor</name>
+
+  <properties>
+      <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+      <mainClass>LbDockerCAdvisor</mainClass>
+      <maven.compile.java.version>1.7</maven.compile.java.version>
+      <shadedClassifierName>executable</shadedClassifierName>
+  </properties>
+
+  <dependencies>
+     <dependency>
+         <groupId>org.apache.httpcomponents</groupId>
+         <artifactId>httpclient</artifactId>
+         <version>4.5.6</version>
+     </dependency>
+
+     <dependency>
+         <groupId>com.googlecode.json-simple</groupId>
+         <artifactId>json-simple</artifactId>
+         <version>1.1.1</version>
+     </dependency>
+
+     <dependency>
+         <groupId>net.minidev</groupId>
+         <artifactId>json-smart</artifactId>
+         <version>2.3</version>
+     </dependency>
+
+     <dependency>
+         <groupId>com.jayway.jsonpath</groupId>
+         <artifactId>json-path</artifactId>
+         <version>2.3.0</version>
+     </dependency>
+
+     <dependency>
+         <groupId>org.slf4j</groupId>
+         <artifactId>slf4j-simple</artifactId>
+         <version>1.7.25</version>
+     </dependency>
+
+  </dependencies>
+
+  <build>
+      <defaultGoal>clean compile package exec:exec</defaultGoal>
+      <plugins>
+         <plugin>
+              <groupId>com.jolira</groupId>
+              <artifactId>onejar-maven-plugin</artifactId>
+              <version>1.4.4</version>
+              <executions>
+                  <execution>
+                      <configuration>
+                          <mainClass>${mainClass}</mainClass>
+                          <classifier>onejar</classifier>
+                      </configuration>
+                      <goals>
+                          <goal>one-jar</goal>
+                      </goals>
+                  </execution>
+              </executions>
+         </plugin>
+         <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-compiler-plugin</artifactId>
+              <version>3.8.0</version>
+              <configuration>
+                  <source>${maven.compile.java.version}</source>
+                  <target>${maven.compile.java.version}</target>
+                  <compilerArgument>-Xlint:all</compilerArgument>
+                  <showWarnings>true</showWarnings>
+                  <showDeprecation>true</showDeprecation>
+              </configuration>
+         </plugin>
+
+         <plugin>
+              <groupId>org.apache.maven.plugins</groupId>
+              <artifactId>maven-jar-plugin</artifactId>
+              <version>3.1.0</version>
+              <executions>
+                <execution>
+                  <id>default-jar</id>
+                </execution>
+              </executions>
+         </plugin>
+
+         <plugin>
+              <groupId>org.codehaus.mojo</groupId>
+              <artifactId>exec-maven-plugin</artifactId>
+              <version>1.6.0</version>
+              <executions>
+                  <execution>
+                      <goals>
+                          <goal>exec</goal>
+                      </goals>
+                   </execution>
+              </executions>
+
+              <configuration>
+                  <executable>java</executable>
+                  <commandlineArgs>
+                      -Done-jar.main.class=${mainClass} -jar ${project.build.directory}/${project.build.finalName}.one-jar.jar
+                  </commandlineArgs>
+              </configuration>
+          </plugin>
+      </plugins>
+  </build>
+
+</project>
