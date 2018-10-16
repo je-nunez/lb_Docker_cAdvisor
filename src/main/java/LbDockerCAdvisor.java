@@ -12,6 +12,12 @@
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 
 // JSonPath
 import com.jayway.jsonpath.JsonPath;
@@ -28,6 +34,7 @@ import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
@@ -36,6 +43,14 @@ import org.apache.http.util.EntityUtils;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
+/**
+* The main class which queries cAdvisor, processes the statistics, and gives
+* the load-balancing recommendation.
+*
+* @author  Jose E. Nunez
+* @version 0.0.1
+* @since   2018-10-14
+*/
 public final class LbDockerCAdvisor {
 
   /**
@@ -88,19 +103,47 @@ public final class LbDockerCAdvisor {
 
 
   /**
+  * Creates an HTTP URI object that requests an API query to the cAdvisor
+  *     server we have registered in this class.
+  * @see #srvCAdvisor
+  *
+  * @param apiQueryCAdvisor the path to be requested to cAdvisor, like
+  *                         "/api/v1.3/docker"
+  * @return the URI to our cAdvisor server to request such API path
+  */
+  protected URI buildCAdvisorUrl(final String apiQueryCAdvisor) {
+
+    URI result = null;
+
+    try {
+      URIBuilder builder = new URIBuilder()
+                               .setScheme("http")
+                               .setHost(srvCAdvisor)
+                               .setPort(portCAdvisor)
+                               .setPath(apiQueryCAdvisor);
+      result =  builder.build();
+
+    } catch (URISyntaxException e) {
+      e.printStackTrace();
+    }
+
+    return result;
+  }
+
+  /**
   * Creates an HTTP GET method, which will be later sent to the [cAdvisor]
   *     HTTP server.
   *
-  * @param url the url to be requested via GET
+  * @param uri the URI to be requested via GET
   * @param dumpRequestHeaders whether to print the GET request headers created
   * @return the HTTP GET request to be sent to the HTTP server
   * @throws UnsupportedEncodingException an unsupported HTTP encoding
   */
-  protected HttpGet createHttpGetMethod(final String url,
+  protected HttpGet createHttpGetMethod(final URI uri,
                                         final boolean dumpRequestHeaders
   ) throws UnsupportedEncodingException {
 
-    HttpGet httpGet = new HttpGet(url);
+    HttpGet httpGet = new HttpGet(uri);
 
     RequestConfig config = RequestConfig.custom()
             .setAuthenticationEnabled(false)
@@ -180,12 +223,12 @@ public final class LbDockerCAdvisor {
   * Makes an HTTP GET request to the [cAdvisor] HTTP server with the given
   *     URL.
   *
-  * @param url The URL to GET at the HTTP server
+  * @param uri The URI to GET at the HTTP server
   * @param dumpRequestHeaders Whether to dump request/response headers or not
   * @return the HTTP Response answered by the HTTP server to that GET query
   */
   protected CloseableHttpResponse simpleHttpGetRequest(
-                                         final String url,
+                                         final URI uri,
                                          final boolean dumpRequestHeaders
   ) {
 
@@ -193,7 +236,7 @@ public final class LbDockerCAdvisor {
 
     HttpGet httpGet = null;
     try {
-      httpGet = createHttpGetMethod(url, dumpRequestHeaders);
+      httpGet = createHttpGetMethod(uri, dumpRequestHeaders);
     } catch (UnsupportedEncodingException e) {
       e.printStackTrace();
       return null;
@@ -245,7 +288,7 @@ public final class LbDockerCAdvisor {
   protected void getMachineStats() {
     // false means: don't dump http headers nor response body for debugging
     CloseableHttpResponse respMachStats = simpleHttpGetRequest(
-                                      "http://127.0.0.1:8080/api/v1.3/machine",
+                                      buildCAdvisorUrl("/api/v1.3/machine"),
                                       false
                                     );
 
@@ -264,13 +307,94 @@ public final class LbDockerCAdvisor {
   }
 
   /**
+  * Converts the Timestamps of the stats returned by cAdvisor to epoch (in
+  *     seconds).
+  *
+  * @param tstampsFromCAdvisor the timestamps of the stats returned by cAdvisor
+  * @return the corresponding list of epoch (in seconds)
+  */
+  protected List<Long> convertTStamps2EpochSec(
+                                          final JSONArray tstampsFromCAdvisor
+  ) {
+
+    List<Long> epochTStamps = new ArrayList<>();
+
+    for (Object o: tstampsFromCAdvisor) {
+      if (o instanceof String) {
+        try {
+          // TODO: modify the ZonedDateTime.parse() so that it saves some of
+          //       the milliseconds in the date-strings. (cAdvisor gives
+          //       timestamps with nanoseconds, i.e., in our iterator o.)
+          //       Then this method would be named ...2EpochMilliSec().
+          Long epoch = new Long(ZonedDateTime
+                                 .parse((String) o)
+                                 .toEpochSecond()
+                               );
+          epochTStamps.add(epoch);
+        } catch (DateTimeParseException e) {
+          e.printStackTrace();
+        }
+      } else {
+        System.err.println("ERROR: unknown time-stamp: " + o);
+      }
+    }
+
+    return epochTStamps;
+  }
+
+  /**
+  * Converts the CPU load-average stats returned by cAdvisor to a List of
+  *     Floats.
+  *
+  * @param loadAvgFromCAdvisor the CPU load-average stats returned by cAdvisor
+  * @return the corresponding list of Floats.
+  */
+  protected List<Float> convertCAdvisorLoadAvg2ListFloat(
+                                          final JSONArray loadAvgFromCAdvisor
+  ) {
+
+    List<Float> loadAvgs = new ArrayList<>();
+
+    for (Object o: loadAvgFromCAdvisor) {
+      if (o instanceof Number) {
+        Float loadAvg = new Float(((Number) o).floatValue());
+        loadAvgs.add(loadAvg);
+      }
+    }
+
+    return loadAvgs;
+  }
+
+  /**
+  * Converts the memory usage stats returned by cAdvisor to a List of Longs.
+  *
+  * @param memUsgFromCAdvisor the memory usage stats returned by cAdvisor
+  * @return the corresponding list of Longs.
+  */
+  protected List<Long> convertCAdvisorMemUsg2ListLong(
+                                          final JSONArray memUsgFromCAdvisor
+  ) {
+
+    List<Long> memUsages = new ArrayList<>();
+
+    for (Object o: memUsgFromCAdvisor) {
+      if (o instanceof Number) {
+        Long memUsage = new Long(((Number) o).longValue());
+        memUsages.add(memUsage);
+      }
+    }
+
+    return memUsages;
+  }
+
+  /**
   * Get the Docker metric statistics from cAdvisor, by
   *     GET-ing the cAdvisor's "/api/v1.3/docker" REST API.
   */
   protected void getDockerStats() {
     // false means: don't dump http headers nor response body for debugging
     CloseableHttpResponse respDockerStats = simpleHttpGetRequest(
-                                      "http://127.0.0.1:8080/api/v1.3/docker",
+                                      buildCAdvisorUrl("/api/v1.3/docker"),
                                       false
                                     );
 
@@ -292,16 +416,47 @@ public final class LbDockerCAdvisor {
 
         Object samplesTimeStamps =
             ctx.read("$..['stats'].[*].['timestamp']");
-        System.out.println(samplesTimeStamps);
+        List<Long> statsTStamps = null;
+        if (samplesTimeStamps instanceof JSONArray) {
+          statsTStamps = convertTStamps2EpochSec(
+                            (JSONArray) samplesTimeStamps
+                         );
+        }
+        System.out.println(statsTStamps);
 
-        Object samplesCpuUsages =
-            ctx.read("$..['stats'].[*].['cpu'].[*].['total']");
-        System.out.println(samplesCpuUsages);
+        // we prefer to use the 'cpu.load_average' stat, rather than
+        // 'cpu.usage.total' stat, because the later is a LongInt with the
+        // accumulated CPU usage since the container start-up, so we would
+        // to have take the maximum CPU limit for this container, and
+        // divide the delta of 'cpu.usage.total' by the max CPU limit for
+        // this container. This is in essence the 'cpu.load_average' stat.
+        Object samplesCpuLoadAvg =
+            ctx.read("$..['stats'].[*].['cpu'].['load_average']");
+        List<Float> statsLoadAvg = null;
+        if (samplesCpuLoadAvg instanceof JSONArray) {
+          statsLoadAvg = convertCAdvisorLoadAvg2ListFloat(
+                            (JSONArray) samplesCpuLoadAvg
+                         );
+        }
+        System.out.println(statsLoadAvg);
 
         Object samplesMemUsages =
             ctx.read("$..['stats'].[*].['memory'].['usage']");
-        System.out.println(samplesMemUsages);
+        List<Long> statsMemUsage = null;
+        if (samplesMemUsages instanceof JSONArray) {
+          statsMemUsage = convertCAdvisorMemUsg2ListLong(
+                            (JSONArray) samplesMemUsages
+                         );
+        }
+        System.out.println(statsMemUsage);
 
+        // TODO: compare the lengths of the three lists:
+        //       statsTStamps, statsLoadAvg, statsMemUsage
+        //       which should be the same; and save these lists into a map:
+        //         mapKey = dockerId: String
+        //         mapValue = [statsTStamps, statsLoadAvg, statsMemUsage]
+        //       This map is the one to be used to answer recommendations to
+        //       the load-balancer.
       } catch (PathNotFoundException e) {
         e.printStackTrace();
       }

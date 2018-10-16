@@ -3,6 +3,12 @@
 An LB for a docker cluster taking metrics from cAdvisor
 [https://github.com/google/cadvisor](https://github.com/google/cadvisor)
 
+(Another option would be to take the metrics from the Docker Engine API
+directly,
+[https://docs.docker.com/engine/api/v1.21/](https://docs.docker.com/engine/api/v1.21/),
+-e.g., the query `GET /containers/(id or name)/stats`-, or to take them from
+monitoring systems like Prometheus.)
+
 # WIP
 
 This project is a *work in progress*. The implementation is *incomplete* and
