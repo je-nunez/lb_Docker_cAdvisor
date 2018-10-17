@@ -14,17 +14,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
 import java.util.List;
-
-// JSonPath
-import com.jayway.jsonpath.JsonPath;
-import com.jayway.jsonpath.ReadContext;
-import com.jayway.jsonpath.PathNotFoundException;
-
-import net.minidev.json.JSONArray;
 
 // Apache HttpClient
 import org.apache.http.Header;
@@ -39,9 +29,12 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
+import org.javatuples.Triplet;
+
 // JSON-simple
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
+
 
 /**
 * The main class which queries cAdvisor, processes the statistics, and gives
@@ -306,86 +299,6 @@ public final class LbDockerCAdvisor {
     }
   }
 
-  /**
-  * Converts the Timestamps of the stats returned by cAdvisor to epoch (in
-  *     seconds).
-  *
-  * @param tstampsFromCAdvisor the timestamps of the stats returned by cAdvisor
-  * @return the corresponding list of epoch (in seconds)
-  */
-  protected List<Long> convertTStamps2EpochSec(
-                                          final JSONArray tstampsFromCAdvisor
-  ) {
-
-    List<Long> epochTStamps = new ArrayList<>();
-
-    for (Object o: tstampsFromCAdvisor) {
-      if (o instanceof String) {
-        try {
-          // TODO: modify the ZonedDateTime.parse() so that it saves some of
-          //       the milliseconds in the date-strings. (cAdvisor gives
-          //       timestamps with nanoseconds, i.e., in our iterator o.)
-          //       Then this method would be named ...2EpochMilliSec().
-          Long epoch = new Long(ZonedDateTime
-                                 .parse((String) o)
-                                 .toEpochSecond()
-                               );
-          epochTStamps.add(epoch);
-        } catch (DateTimeParseException e) {
-          e.printStackTrace();
-        }
-      } else {
-        System.err.println("ERROR: unknown time-stamp: " + o);
-      }
-    }
-
-    return epochTStamps;
-  }
-
-  /**
-  * Converts the CPU load-average stats returned by cAdvisor to a List of
-  *     Floats.
-  *
-  * @param loadAvgFromCAdvisor the CPU load-average stats returned by cAdvisor
-  * @return the corresponding list of Floats.
-  */
-  protected List<Float> convertCAdvisorLoadAvg2ListFloat(
-                                          final JSONArray loadAvgFromCAdvisor
-  ) {
-
-    List<Float> loadAvgs = new ArrayList<>();
-
-    for (Object o: loadAvgFromCAdvisor) {
-      if (o instanceof Number) {
-        Float loadAvg = new Float(((Number) o).floatValue());
-        loadAvgs.add(loadAvg);
-      }
-    }
-
-    return loadAvgs;
-  }
-
-  /**
-  * Converts the memory usage stats returned by cAdvisor to a List of Longs.
-  *
-  * @param memUsgFromCAdvisor the memory usage stats returned by cAdvisor
-  * @return the corresponding list of Longs.
-  */
-  protected List<Long> convertCAdvisorMemUsg2ListLong(
-                                          final JSONArray memUsgFromCAdvisor
-  ) {
-
-    List<Long> memUsages = new ArrayList<>();
-
-    for (Object o: memUsgFromCAdvisor) {
-      if (o instanceof Number) {
-        Long memUsage = new Long(((Number) o).longValue());
-        memUsages.add(memUsage);
-      }
-    }
-
-    return memUsages;
-  }
 
   /**
   * Get the Docker metric statistics from cAdvisor, by
@@ -398,68 +311,16 @@ public final class LbDockerCAdvisor {
                                       false
                                     );
 
-    String strDockerStats = getResponseStringBody(respDockerStats);
+    String respBody = getResponseStringBody(respDockerStats);
 
-    if (strDockerStats != null) {
-      try {
-        // prepare JsonPath queries on the metrics returned by cAdvisor
-        ReadContext ctx = JsonPath.parse(strDockerStats);
+    if (respBody != null) {
+      ConvertBodyFromCAdvisor converter =
+          new ConvertBodyFromCAdvisor(respBody);
 
-        String dockerId = null;
-        Object result = ctx.read("$..['id']");
+      String dockerId = converter.getDockerId();
 
-        if (result instanceof JSONArray) {
-          dockerId = (String) ((JSONArray) result).get(0);
-        }
-
-        System.out.println(dockerId);
-
-        Object samplesTimeStamps =
-            ctx.read("$..['stats'].[*].['timestamp']");
-        List<Long> statsTStamps = null;
-        if (samplesTimeStamps instanceof JSONArray) {
-          statsTStamps = convertTStamps2EpochSec(
-                            (JSONArray) samplesTimeStamps
-                         );
-        }
-        System.out.println(statsTStamps);
-
-        // we prefer to use the 'cpu.load_average' stat, rather than
-        // 'cpu.usage.total' stat, because the later is a LongInt with the
-        // accumulated CPU usage since the container start-up, so we would
-        // to have take the maximum CPU limit for this container, and
-        // divide the delta of 'cpu.usage.total' by the max CPU limit for
-        // this container. This is in essence the 'cpu.load_average' stat.
-        Object samplesCpuLoadAvg =
-            ctx.read("$..['stats'].[*].['cpu'].['load_average']");
-        List<Float> statsLoadAvg = null;
-        if (samplesCpuLoadAvg instanceof JSONArray) {
-          statsLoadAvg = convertCAdvisorLoadAvg2ListFloat(
-                            (JSONArray) samplesCpuLoadAvg
-                         );
-        }
-        System.out.println(statsLoadAvg);
-
-        Object samplesMemUsages =
-            ctx.read("$..['stats'].[*].['memory'].['usage']");
-        List<Long> statsMemUsage = null;
-        if (samplesMemUsages instanceof JSONArray) {
-          statsMemUsage = convertCAdvisorMemUsg2ListLong(
-                            (JSONArray) samplesMemUsages
-                         );
-        }
-        System.out.println(statsMemUsage);
-
-        // TODO: compare the lengths of the three lists:
-        //       statsTStamps, statsLoadAvg, statsMemUsage
-        //       which should be the same; and save these lists into a map:
-        //         mapKey = dockerId: String
-        //         mapValue = [statsTStamps, statsLoadAvg, statsMemUsage]
-        //       This map is the one to be used to answer recommendations to
-        //       the load-balancer.
-      } catch (PathNotFoundException e) {
-        e.printStackTrace();
-      }
+      List<Triplet<Long, Float, Long>> statsCpuMem =
+          converter.getCAdvisorCpuMemStats();
     }
   }
 
