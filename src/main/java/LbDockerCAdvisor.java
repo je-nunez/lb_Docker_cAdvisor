@@ -314,13 +314,23 @@ public final class LbDockerCAdvisor {
     String respBody = getResponseStringBody(respDockerStats);
 
     if (respBody != null) {
-      ConvertBodyFromCAdvisor converter =
-          new ConvertBodyFromCAdvisor(respBody);
+      ConvertDockerBodyFromCAdvisor converter =
+          new ConvertDockerBodyFromCAdvisor(respBody);
 
       String dockerId = converter.getDockerId();
 
+      System.out.println(dockerId);
+
       List<Triplet<Long, Float, Long>> statsCpuMem =
           converter.getCAdvisorCpuMemStats();
+
+      statsCpuMem.forEach(stat -> {
+        Long tstamp = stat.getValue0();
+        Float cpuLoadAvg = stat.getValue1();
+        Long memUsage = stat.getValue2();
+
+        System.out.format("%d: %f %d\n", tstamp, cpuLoadAvg, memUsage);
+      });
     }
   }
 

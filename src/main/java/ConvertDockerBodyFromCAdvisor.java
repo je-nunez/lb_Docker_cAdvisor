@@ -26,14 +26,14 @@ import net.minidev.json.JSONArray;
 import org.javatuples.Triplet;
 
 /**
-* The main class which queries cAdvisor, processes the statistics, and gives
-* the load-balancing recommendation.
+* Parse and convert the response body from cAdvisor REST query
+* "/api/v1.3/docker".
 *
 * @author  Jose E. Nunez
 * @version 0.0.1
 * @since   2018-10-14
 */
-public class ConvertBodyFromCAdvisor {
+public class ConvertDockerBodyFromCAdvisor {
 
   /**
   * the JsonPath ReadContext.
@@ -46,7 +46,7 @@ public class ConvertBodyFromCAdvisor {
   * @param strDockerStats the string with the [JSON] body of the
   *                       /api/m.n/docker response from cAdvisor
   */
-  public ConvertBodyFromCAdvisor(final String strDockerStats) {
+  public ConvertDockerBodyFromCAdvisor(final String strDockerStats) {
     // prepare JsonPath queries on the metrics returned by cAdvisor
     ctx = JsonPath.parse(strDockerStats);
   }
