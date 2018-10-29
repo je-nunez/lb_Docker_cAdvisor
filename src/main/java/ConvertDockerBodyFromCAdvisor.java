@@ -11,7 +11,10 @@
 */
 
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
@@ -22,8 +25,6 @@ import com.jayway.jsonpath.PathNotFoundException;
 import com.jayway.jsonpath.ReadContext;
 
 import net.minidev.json.JSONArray;
-
-import org.javatuples.Triplet;
 
 /**
 * Parse and convert the response body from cAdvisor REST query
@@ -41,6 +42,11 @@ public class ConvertDockerBodyFromCAdvisor {
   private ReadContext ctx;
 
   /**
+  * the DateTimeFormatter to format timestamps returned by cAdvisor.
+  */
+  private DateTimeFormatter dateFormatter = null;
+
+  /**
   * Instance constructor.
   *
   * @param strDockerStats the string with the [JSON] body of the
@@ -49,20 +55,38 @@ public class ConvertDockerBodyFromCAdvisor {
   public ConvertDockerBodyFromCAdvisor(final String strDockerStats) {
     // prepare JsonPath queries on the metrics returned by cAdvisor
     ctx = JsonPath.parse(strDockerStats);
+
+    dateFormatter = new DateTimeFormatterBuilder()
+      .append(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+      .optionalStart()
+      .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
+      .optionalEnd()
+      .appendOffset("+HH:mm", "Z")
+      .toFormatter();
   }
 
   /**
-  * Get the Docker ID string.
+  * Get the Docker ID strings returned by cAdvisor.
   *
-  * @return the DockerId
+  * @return the list of DockerId
   */
-  public String getDockerId() {
+  public List<String> getDockerId() {
     try {
       Object result = ctx.read("$..['id']");   // "$..['id']"
 
       if (result instanceof JSONArray) {
-        String dockerId = (String) ((JSONArray) result).get(0);
-        return dockerId;
+        JSONArray jsonArray = ((JSONArray) result);
+        ArrayList<String> dockerIds = new ArrayList<String>(jsonArray.size());
+        for (int idx = 0; idx < jsonArray.size(); idx++) {
+          Object element = jsonArray.get(idx);
+          if (element instanceof String) {
+            dockerIds.add(idx, (String) element);
+          } else {
+            dockerIds.add(idx, null);
+          }
+        }
+
+        return dockerIds;
       }
     } catch (PathNotFoundException e) {
       e.printStackTrace();
@@ -100,21 +124,20 @@ public class ConvertDockerBodyFromCAdvisor {
 
   /**
   * Converts the a cAdvisor timestamp (which should be a string) to epoch time
-  *     (in seconds).
+  * (in milliseconds).
   *
   * @param vcAdvisorTStamp the timestamp of the stats returned by cAdvisor
-  * @return the corresponding the corresponding epoch time (in seconds)
+  * @return the corresponding the corresponding epoch time (in milliseconds)
   */
   protected Long convertCAdvisorDate(final Object vcAdvisorTStamp) {
+
     if (vcAdvisorTStamp instanceof String) {
       try {
-        // TODO: modify the ZonedDateTime.parse() so that it saves some of
-        //       the milliseconds in the date-strings. (cAdvisor gives
-        //       timestamps with nanoseconds, i.e., in vcAdvisorTStamp.)
         Long epoch = new Long(ZonedDateTime
-                               .parse((String) vcAdvisorTStamp)
-                               .toEpochSecond()
-                             );
+                                .parse((String) vcAdvisorTStamp, dateFormatter)
+                                .toInstant()
+                                .toEpochMilli()
+                     );
         return epoch;
       } catch (DateTimeParseException e) {
         e.printStackTrace();
@@ -127,30 +150,30 @@ public class ConvertDockerBodyFromCAdvisor {
   }
 
   /**
-  * Converts a CPU load-average stat returned by cAdvisor to a Float.
+  * Converts a Json object containing a Number object to a Float object.
   *
-  * @param vcAdvisorLoadAvg the CPU load-average stat returned by cAdvisor
-  * @return the corresponding Float.
+  * @param jsonFloat an object representing a parsed Json Float.
+  * @return the corresponding Float, or null if the argument is not a number.
   */
-  protected Float convertCAdvisorLoadAvg(final Object vcAdvisorLoadAvg) {
-    if (vcAdvisorLoadAvg instanceof Number) {
-      Float loadAvg = new Float(((Number) vcAdvisorLoadAvg).floatValue());
-      return loadAvg;
+  protected Float convertJsonFloat(final Object jsonFloat) {
+    if (jsonFloat instanceof Number) {
+      Float javaFloat = new Float(((Number) jsonFloat).floatValue());
+      return javaFloat;
     } else {
       return null;
     }
   }
 
   /**
-  * Converts a memory usage stat returned by cAdvisor to a Long.
+  * Converts a Json object containing a Number object to a Long object.
   *
-  * @param vcAdvisorMemUsg the memory usage stat returned by cAdvisor
-  * @return the corresponding Long.
+  * @param jsonLong an object representing a parsed Json Long.
+  * @return the corresponding Long, or null if the argument is not a number.
   */
-  protected Long convertCAdvisorMemUsage(final Object vcAdvisorMemUsg) {
-    if (vcAdvisorMemUsg instanceof Number) {
-      Long memUsage = new Long(((Number) vcAdvisorMemUsg).longValue());
-      return memUsage;
+  protected Long convertJsonLong(final Object jsonLong) {
+    if (jsonLong instanceof Number) {
+      Long javaLong = new Long(((Number) jsonLong).longValue());
+      return javaLong;
     } else {
       return null;
     }
@@ -158,14 +181,16 @@ public class ConvertDockerBodyFromCAdvisor {
 
   /**
   * Gets the Java list of all the stats timestamps returned by cAdvisor, as
-  * Unix epochs.
+  * Unix epochs (in milliseconds), for a Docker container-id.
   *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
   * @return the Java list of all the stats epochs returned by cAdvisor.
   */
-  protected List<Long> getCAdvisorTStamps() {
+  protected List<Long> getCAdvisorTStamps(final String nameAdvisorChild) {
     try {
       Object samplesTimeStamps =
-          ctx.read("$..['stats'].[*].['timestamp']");
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['timestamp']");
 
       List<Long> statsTStamps =
           convertFromCAdvisor(samplesTimeStamps,
@@ -180,11 +205,33 @@ public class ConvertDockerBodyFromCAdvisor {
   }
 
   /**
-  * Gets the Java list of all the CPU Load Averages returned by cAdvisor.
+  * Gets the Java list of all the Docker containers' memory limits returned
+  * by cAdvisor.
   *
   * @return the Java list of all the CPU Load Averages returned by cAdvisor.
   */
-  protected List<Float> getCAdvisorLoadAvg() {
+  protected List<Long> getCAdvisorMemLimit() {
+    try {
+      Object samplesMemLimit =
+          ctx.read("$..['spec'].['memory'].['limit']");
+      List<Long> statsMemLimit =
+          convertFromCAdvisor(samplesMemLimit, obj -> convertJsonLong(obj));
+      return statsMemLimit;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets the Java list of all the CPU Load Averages returned by cAdvisor for a
+  * Docker container-id.
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of all the CPU Load Averages returned by cAdvisor.
+  */
+  protected List<Float> getCAdvisorLoadAvg(final String nameAdvisorChild) {
     try {
       // we prefer to use the 'cpu.load_average' stat, rather than
       // 'cpu.usage.total' stat, because the later is a LongInt with the
@@ -193,10 +240,11 @@ public class ConvertDockerBodyFromCAdvisor {
       // divide the delta of 'cpu.usage.total' by the max CPU limit for
       // this container. This is in essence the 'cpu.load_average' stat.
       Object samplesCpuLoadAvg =
-          ctx.read("$..['stats'].[*].['cpu'].['load_average']");
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['cpu'].['load_average']");
       List<Float> statsLoadAvg =
           convertFromCAdvisor(samplesCpuLoadAvg,
-              obj -> convertCAdvisorLoadAvg(obj)
+              obj -> convertJsonFloat(obj)
           );
       return statsLoadAvg;
     } catch (PathNotFoundException e) {
@@ -207,18 +255,19 @@ public class ConvertDockerBodyFromCAdvisor {
   }
 
   /**
-  * Gets the Java list of all the Memory Usages returned by cAdvisor.
+  * Gets the Java list of all the Memory Usages returned by cAdvisor for a
+  * Docker container-id.
   *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
   * @return the Java list of all the Memory Usages returned by cAdvisor.
   */
-  protected List<Long> getCAdvisorMemUsage() {
+  protected List<Long> getCAdvisorMemUsage(final String nameAdvisorChild) {
     try {
       Object samplesMemUsages =
-          ctx.read("$..['stats'].[*].['memory'].['usage']");
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['memory'].['usage']");
       List<Long> statsMemUsage =
-          convertFromCAdvisor(samplesMemUsages,
-              obj -> convertCAdvisorMemUsage(obj)
-          );
+          convertFromCAdvisor(samplesMemUsages, obj -> convertJsonLong(obj));
       return statsMemUsage;
     } catch (PathNotFoundException e) {
       e.printStackTrace();
@@ -228,35 +277,89 @@ public class ConvertDockerBodyFromCAdvisor {
   }
 
   /**
-  * Gets the Java list of all the CPU, Memory stats returned by cAdvisor,
-  * together with their respective timestamp as a Unix epoch.
+  * Gets the Java list of all the Network RX-Dropped returned by cAdvisor for
+  * a Docker container-id.
   *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of all the Network RX-Dropped returned by cAdvisor.
+  */
+  protected List<Long> getCAdvisorRxDropped(final String nameAdvisorChild) {
+    try {
+      Object samplesRxDropped =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['network'].['rx_dropped']");
+      List<Long> statsRxDropped =
+          convertFromCAdvisor(samplesRxDropped, obj -> convertJsonLong(obj));
+      return statsRxDropped;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets the Java list of all measurement stats returned by cAdvisor for a
+  * Docker container-id.
+  *
+  * @param dockerId the value of the Docker container-id.
   * @return the Java list of such timed-stats returned by cAdvisor.
   */
-  public List<Triplet<Long, Float, Long>> getCAdvisorCpuMemStats() {
+  public List<LbCAdvisorInputStat> getCAdvisorCpuMemStats(
+                                                    final String dockerId
+  ) {
 
-    List<Long> tmStamps = getCAdvisorTStamps();
-    List<Float> cpuLoadAvgs = getCAdvisorLoadAvg();
-    List<Long> memUsages = getCAdvisorMemUsage();
+    String nameAdvisorChild = "/docker/" + dockerId;
+
+    List<Long> tmStamps = getCAdvisorTStamps(nameAdvisorChild);
+    List<Float> cpuLoadAvgs = getCAdvisorLoadAvg(nameAdvisorChild);
+    List<Long> memUsages = getCAdvisorMemUsage(nameAdvisorChild);
+    List<Long> rxDroppeds = getCAdvisorRxDropped(nameAdvisorChild);
 
     int numTStamps = tmStamps.size();
     if (numTStamps != cpuLoadAvgs.size()
-        || numTStamps != memUsages.size()) {
+        || numTStamps != memUsages.size()
+        || numTStamps != rxDroppeds.size()) {
       return null;
     }
 
-    List<Triplet<Long, Float, Long>> results = new ArrayList<>(numTStamps);
+    List<LbCAdvisorInputStat> results = new ArrayList<>(numTStamps);
 
     for (int i = 0; i < numTStamps; i++) {
-      Long tmStamp = tmStamps.get(i);
-      Float cpuLoadAvg = cpuLoadAvgs.get(i);
-      Long memUsage = memUsages.get(i);
+      long tmStamp = 0;
+      if (tmStamps.get(i) != null) {
+        tmStamp = tmStamps.get(i).longValue();
+      }
 
-      results.add(new Triplet<>(tmStamp, cpuLoadAvg, memUsage));
+      float cpuLoadAvg = 0;
+      if (cpuLoadAvgs.get(i) != null) {
+        cpuLoadAvg = cpuLoadAvgs.get(i).floatValue();
+      }
+
+      long memUsage = 0;
+      if (memUsages.get(i) != null) {
+        memUsage = memUsages.get(i).longValue();
+      }
+
+      long rxDropped = 0;
+      if (rxDroppeds.get(i) != null) {
+        rxDropped = rxDroppeds.get(i).longValue();
+      }
+
+      results.add(new LbCAdvisorInputStat()
+                         .epochTimeStampMilli(tmStamp)
+                         .cpuLoadAvg(cpuLoadAvg)
+                         .memUsage(memUsage)
+                         .rxDropped(rxDropped)
+                         // TODO: calculate these below
+                         .ioTime(0)
+                         .readTime(0)
+                         .writeTime(0)
+                         .weightedIoTime(0)
+      );
     }
 
     return results;
   }
 
 }
-

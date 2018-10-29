@@ -29,8 +29,6 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
-import org.javatuples.Triplet;
-
 // JSON-simple
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
@@ -314,24 +312,53 @@ public final class LbDockerCAdvisor {
     String respBody = getResponseStringBody(respDockerStats);
 
     if (respBody != null) {
+      // System.out.println(respBody);
+
       ConvertDockerBodyFromCAdvisor converter =
           new ConvertDockerBodyFromCAdvisor(respBody);
 
-      String dockerId = converter.getDockerId();
+      List<String> dockerIds = converter.getDockerId();
+      List<Long> memLimits = converter.getCAdvisorMemLimit();
 
-      System.out.println(dockerId);
+      // like zip()-ing both lists dockerIds and memLimits
+      assert (dockerIds.size() == memLimits.size());
+      for (int idx = 0; idx < dockerIds.size(); idx++) {
+        String currDockerId = dockerIds.get(idx);
+        System.out.format("%s %d\n", currDockerId, memLimits.get(idx));
 
-      List<Triplet<Long, Float, Long>> statsCpuMem =
-          converter.getCAdvisorCpuMemStats();
+        List<LbCAdvisorInputStat> dockerStats =
+            converter.getCAdvisorCpuMemStats(currDockerId);
 
-      statsCpuMem.forEach(stat -> {
-        Long tstamp = stat.getValue0();
-        Float cpuLoadAvg = stat.getValue1();
-        Long memUsage = stat.getValue2();
+        dockerStats.forEach(stat -> {
+          System.out.format("%d: %f %d %d\n", stat.epochTimeStampMilli(),
+                            stat.cpuLoadAvg(), stat.memUsage(),
+                            stat.rxDropped());
+        });
 
-        System.out.format("%d: %f %d\n", tstamp, cpuLoadAvg, memUsage);
-      });
+        // this overallLoadFactor() is the value used for load-balancing
+        double currDockerLoadFactor = overallLoadFactor(dockerStats);
+        System.out.format("Overall load factor of container %s: %f\n",
+                          currDockerId, currDockerLoadFactor);
+      }
+
     }
+  }
+
+  /**
+  * Get the simplified, overall load factor of a Docker container given its
+  * list of metric statistics. (Greater values of this simplified, overall
+  * measure means greater current load in the Docker container, so the less
+  * probable, relatively, it should be chosen for the next service requests.)
+  *
+  * @param lstDockerStats the list of metric statistics of a Docker container.
+  * @return a double value with the simplified, overall load factor of this
+  *         Docker container.
+  */
+  protected double overallLoadFactor(
+                              final List<LbCAdvisorInputStat> lstDockerStats
+  ) {
+    // TODO
+    return 0.0;
   }
 
   /**
