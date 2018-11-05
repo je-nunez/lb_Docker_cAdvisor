@@ -16,6 +16,7 @@ import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.function.Function;
 
@@ -180,6 +181,36 @@ public class ConvertDockerBodyFromCAdvisor {
   }
 
   /**
+  * Sums a Json object containing a list according to the field fieldName
+  * of elements in that list. (I.e., in: [{..., fieldName: value1, ...},
+  * {..., fieldName: value2, ...},..., {..., fieldName: valueN, ...}]: adds
+  * all the values of fieldName found in this list.)
+  *
+  * @param jsonList an object representing a parsed Json list (array).
+  * @param fieldName the field name to sum up in the elements of jsonList.
+  * @return the corresponding Long, or null if the argument is not a number.
+  */
+  protected Long sumSamplesSamePeriod(final Object jsonList,
+                                      final String fieldName) {
+    if (jsonList instanceof JSONArray) {
+      long accum = 0;
+      for (Object statsSameTimePeriod: (JSONArray) jsonList) {
+        if (statsSameTimePeriod instanceof LinkedHashMap) {
+
+          Object statsForThisFilesys =
+              ((LinkedHashMap) statsSameTimePeriod).get(fieldName);
+
+          if (statsForThisFilesys instanceof Number) {
+            accum += ((Number) statsForThisFilesys).longValue();
+          }
+        }
+      }
+      return new Long(accum);
+    }
+    return null;
+  }
+
+  /**
   * Gets the Java list of all the stats timestamps returned by cAdvisor, as
   * Unix epochs (in milliseconds), for a Docker container-id.
   *
@@ -299,6 +330,149 @@ public class ConvertDockerBodyFromCAdvisor {
   }
 
   /**
+  * Gets the Java list of __the sum__ of all the Filesystems IO-Time returned
+  * by cAdvisor for a Docker container-id (the sum is for all the filesystems
+  * in a same timestamp sampled by cAdvisor).
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of the sum of all the filesystems' IO-Times.
+  */
+  protected List<Long> getCAdvisorIoTime(final String nameAdvisorChild) {
+    try {
+      Object samplesFilesystem =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['filesystem']");
+      // The processing of the cAdvisor 'filesystem' stats is a little
+      // different that for 'cpu', 'memory', etc., stats, because the latter
+      // return scalars per each sample time, but 'filesystem' returns a list
+      // of the stats of all the filesystems in the Docker container per each
+      // sample time returned by cAdvisor.
+      List<Long> statsIoTime =
+          convertFromCAdvisor(samplesFilesystem,
+              obj -> sumSamplesSamePeriod(obj, "io_time")
+          );
+      return statsIoTime;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets the Java list of __the sum__ of all the Filesystems Read-Time returned
+  * by cAdvisor for a Docker container-id (the sum is for all the filesystems
+  * in a same timestamp sampled by cAdvisor).
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of the sum of all the filesystems' Read-Times.
+  */
+  protected List<Long> getCAdvisorReadTime(final String nameAdvisorChild) {
+    try {
+      Object samplesFilesystem =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['filesystem']");
+      // The processing of the cAdvisor 'filesystem' stats is a little
+      // different that for 'cpu', 'memory', etc., stats, because the latter
+      // return scalars per each sample time, but 'filesystem' returns a list
+      // of the stats of all the filesystems in the Docker container per each
+      // sample time returned by cAdvisor.
+      List<Long> statsReadTime =
+          convertFromCAdvisor(samplesFilesystem,
+              obj -> sumSamplesSamePeriod(obj, "read_time")
+          );
+      return statsReadTime;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets the Java list of __the sum__ of all the Filesystems Write-Time returned
+  * by cAdvisor for a Docker container-id (the sum is for all the filesystems
+  * in a same timestamp sampled by cAdvisor).
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of the sum of all the filesystems' Write-Times.
+  */
+  protected List<Long> getCAdvisorWriteTime(final String nameAdvisorChild) {
+    try {
+      Object samplesFilesystem =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['filesystem']");
+      // The processing of the cAdvisor 'filesystem' stats is a little
+      // different that for 'cpu', 'memory', etc., stats, because the latter
+      // return scalars per each sample time, but 'filesystem' returns a list
+      // of the stats of all the filesystems in the Docker container per each
+      // sample time returned by cAdvisor.
+      List<Long> statsWriteTime =
+          convertFromCAdvisor(samplesFilesystem,
+              obj -> sumSamplesSamePeriod(obj, "write_time")
+          );
+      return statsWriteTime;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets the Java list of __the sum__ of all the Filesystems Weighted-IO-Time
+  * returned by cAdvisor for a Docker container-id (the sum is for all the
+  * filesystems in a same timestamp sampled by cAdvisor).
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of the sum of all the filesystems' Weighted-IO-Times.
+  */
+  protected List<Long> getCAdvisorWeightedIoTime(
+                                    final String nameAdvisorChild
+  ) {
+    try {
+      Object samplesFilesystem =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['filesystem']");
+      // The processing of the cAdvisor 'filesystem' stats is a little
+      // different that for 'cpu', 'memory', etc., stats, because the latter
+      // return scalars per each sample time, but 'filesystem' returns a list
+      // of the stats of all the filesystems in the Docker container per each
+      // sample time returned by cAdvisor.
+      List<Long> statsWeightedIoTime =
+          convertFromCAdvisor(samplesFilesystem,
+              obj -> sumSamplesSamePeriod(obj, "weighted_io_time")
+          );
+      return statsWeightedIoTime;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets an index in Java list, which can contain "null" as element, so that if
+  * index in the list is a "null"-valued element, then returns instead a
+  * default value.
+  *
+  * @param <T> This is the generic type parameter of the elements in the list.
+  * @param list the list to index.
+  * @param index the index to look in the list.
+  * @param defaultVal the default value to return if the index in the list is
+  *                   null-valued element.
+  * @return the value of the list at that index, or the default value if the
+  *         the index in the list is a null-valued element.
+  */
+  protected final <T> T getSafeListElement(final List<T> list, final int index,
+                                     final T defaultVal) {
+    if (list.get(index) != null) {
+      return list.get(index);
+    }
+    return defaultVal;
+  }
+
+  /**
   * Gets the Java list of all measurement stats returned by cAdvisor for a
   * Docker container-id.
   *
@@ -315,47 +489,63 @@ public class ConvertDockerBodyFromCAdvisor {
     List<Float> cpuLoadAvgs = getCAdvisorLoadAvg(nameAdvisorChild);
     List<Long> memUsages = getCAdvisorMemUsage(nameAdvisorChild);
     List<Long> rxDroppeds = getCAdvisorRxDropped(nameAdvisorChild);
+    List<Long> ioTimeTotals = getCAdvisorIoTime(nameAdvisorChild);
+    List<Long> readTimeTotals = getCAdvisorReadTime(nameAdvisorChild);
+    List<Long> writeTimeTotals = getCAdvisorWriteTime(nameAdvisorChild);
+    List<Long> weigtedIoTimeTotals =
+        getCAdvisorWeightedIoTime(nameAdvisorChild);
 
     int numTStamps = tmStamps.size();
     if (numTStamps != cpuLoadAvgs.size()
         || numTStamps != memUsages.size()
-        || numTStamps != rxDroppeds.size()) {
+        || numTStamps != rxDroppeds.size()
+        || numTStamps != ioTimeTotals.size()
+        || numTStamps != readTimeTotals.size()
+        || numTStamps != writeTimeTotals.size()
+        || numTStamps != weigtedIoTimeTotals.size()) {
       return null;
     }
 
     List<LbCAdvisorInputStat> results = new ArrayList<>(numTStamps);
 
+    Long defaultLongVal = new Long(0);
+    Float defaultFloatVal = new Float(0);
+
     for (int i = 0; i < numTStamps; i++) {
-      long tmStamp = 0;
-      if (tmStamps.get(i) != null) {
-        tmStamp = tmStamps.get(i).longValue();
-      }
+      long tmStamp =
+          getSafeListElement(tmStamps, i, defaultLongVal).longValue();
 
-      float cpuLoadAvg = 0;
-      if (cpuLoadAvgs.get(i) != null) {
-        cpuLoadAvg = cpuLoadAvgs.get(i).floatValue();
-      }
+      float cpuLoadAvg =
+          getSafeListElement(cpuLoadAvgs, i, defaultFloatVal).floatValue();
 
-      long memUsage = 0;
-      if (memUsages.get(i) != null) {
-        memUsage = memUsages.get(i).longValue();
-      }
+      long memUsage =
+          getSafeListElement(memUsages, i, defaultLongVal).longValue();
 
-      long rxDropped = 0;
-      if (rxDroppeds.get(i) != null) {
-        rxDropped = rxDroppeds.get(i).longValue();
-      }
+      long rxDropped =
+          getSafeListElement(rxDroppeds, i, defaultLongVal).longValue();
+
+      long ioTime =
+          getSafeListElement(ioTimeTotals, i, defaultLongVal).longValue();
+
+      long readTime =
+          getSafeListElement(readTimeTotals, i, defaultLongVal).longValue();
+
+      long writeTime =
+          getSafeListElement(writeTimeTotals, i, defaultLongVal).longValue();
+
+      long weightedIoTime =
+          getSafeListElement(weigtedIoTimeTotals, i, defaultLongVal)
+            .longValue();
 
       results.add(new LbCAdvisorInputStat()
                          .epochTimeStampMilli(tmStamp)
                          .cpuLoadAvg(cpuLoadAvg)
                          .memUsage(memUsage)
                          .rxDropped(rxDropped)
-                         // TODO: calculate these below
-                         .ioTime(0)
-                         .readTime(0)
-                         .writeTime(0)
-                         .weightedIoTime(0)
+                         .ioTime(ioTime)
+                         .readTime(readTime)
+                         .writeTime(writeTime)
+                         .weightedIoTime(weightedIoTime)
       );
     }
 

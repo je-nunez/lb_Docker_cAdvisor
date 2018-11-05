@@ -330,9 +330,13 @@ public final class LbDockerCAdvisor {
             converter.getCAdvisorCpuMemStats(currDockerId);
 
         dockerStats.forEach(stat -> {
-          System.out.format("%d: %f %d %d\n", stat.epochTimeStampMilli(),
+          System.out.format("%d: %f %d %d %d %d %d %d\n",
+                            stat.epochTimeStampMilli(),
+                            // Values of the metrics sampled at this epoch:
                             stat.cpuLoadAvg(), stat.memUsage(),
-                            stat.rxDropped());
+                            stat.rxDropped(), stat.ioTime(),
+                            stat.readTime(), stat.writeTime(),
+                            stat.weightedIoTime());
         });
 
         // this overallLoadFactor() is the value used for load-balancing
@@ -357,7 +361,9 @@ public final class LbDockerCAdvisor {
   protected double overallLoadFactor(
                               final List<LbCAdvisorInputStat> lstDockerStats
   ) {
-    // TODO
+    // TODO: probably read from a config file the relative weights of each of
+    //       the cAdvisor metrics in LbCAdvisorInputStat, to calculate a
+    //       weighted overall load factor.
     return 0.0;
   }
 
