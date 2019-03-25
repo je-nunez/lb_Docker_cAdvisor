@@ -386,8 +386,12 @@ public final class LbDockerCAdvisor {
   */
   public static void main(final String[] args) throws Exception {
 
-    String hostCAdvisor = "localhost";
     final int defaultCAdvisorPort = 8080;
+    String hostCAdvisor = "localhost";
+    if (args.length >= 1) {
+      // the first argument is the address of CAdvisor
+      hostCAdvisor = args[0];
+    }
 
     // don't use an http-proxy to connect to cAdvisor
     HttpHost httpProxy = null;
