@@ -330,6 +330,94 @@ public class ConvertDockerBodyFromCAdvisor {
   }
 
   /**
+  * Gets the Java list of all the Network RX-Bytes returned by cAdvisor for
+  * a Docker container-id.
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of all the Network RX-Bytes returned by cAdvisor.
+  */
+  protected List<Long> getCAdvisorRxBytes(final String nameAdvisorChild) {
+    try {
+      Object samplesRxBytes =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['network'].['rx_bytes']");
+      List<Long> statsRxBytes =
+          convertFromCAdvisor(samplesRxBytes, obj -> convertJsonLong(obj));
+      return statsRxBytes;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets the Java list of all the Network RX-Packets returned by cAdvisor for
+  * a Docker container-id.
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of all the Network RX-Packets returned by cAdvisor.
+  */
+  protected List<Long> getCAdvisorRxPackets(final String nameAdvisorChild) {
+    try {
+      Object samplesRxPackets =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['network'].['rx_packets']");
+      List<Long> statsRxPackets =
+          convertFromCAdvisor(samplesRxPackets, obj -> convertJsonLong(obj));
+      return statsRxPackets;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets the Java list of all the Network TX-Bytes returned by cAdvisor for
+  * a Docker container-id.
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of all the Network TX-Bytes returned by cAdvisor.
+  */
+  protected List<Long> getCAdvisorTxBytes(final String nameAdvisorChild) {
+    try {
+      Object samplesTxBytes =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['network'].['tx_bytes']");
+      List<Long> statsTxBytes =
+          convertFromCAdvisor(samplesTxBytes, obj -> convertJsonLong(obj));
+      return statsTxBytes;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
+  * Gets the Java list of all the Network TX-Packets returned by cAdvisor for
+  * a Docker container-id.
+  *
+  * @param nameAdvisorChild the value of the top-level "/docker/container-id".
+  * @return the Java list of all the Network TX-Packets returned by cAdvisor.
+  */
+  protected List<Long> getCAdvisorTxPackets(final String nameAdvisorChild) {
+    try {
+      Object samplesTxPackets =
+          ctx.read("$.['" + nameAdvisorChild
+                   + "'].['stats'].[*].['network'].['tx_packets']");
+      List<Long> statsTxPackets =
+          convertFromCAdvisor(samplesTxPackets, obj -> convertJsonLong(obj));
+      return statsTxPackets;
+    } catch (PathNotFoundException e) {
+      e.printStackTrace();
+    }
+
+    return null;
+  }
+
+  /**
   * Gets the Java list of __the sum__ of all the Filesystems IO-Time returned
   * by cAdvisor for a Docker container-id (the sum is for all the filesystems
   * in a same timestamp sampled by cAdvisor).
@@ -489,6 +577,10 @@ public class ConvertDockerBodyFromCAdvisor {
     List<Float> cpuLoadAvgs = getCAdvisorLoadAvg(nameAdvisorChild);
     List<Long> memUsages = getCAdvisorMemUsage(nameAdvisorChild);
     List<Long> rxDroppeds = getCAdvisorRxDropped(nameAdvisorChild);
+    List<Long> rxBytess = getCAdvisorRxBytes(nameAdvisorChild);
+    List<Long> rxPacketss = getCAdvisorRxPackets(nameAdvisorChild);
+    List<Long> txBytess = getCAdvisorTxBytes(nameAdvisorChild);
+    List<Long> txPacketss = getCAdvisorTxPackets(nameAdvisorChild);
     List<Long> ioTimeTotals = getCAdvisorIoTime(nameAdvisorChild);
     List<Long> readTimeTotals = getCAdvisorReadTime(nameAdvisorChild);
     List<Long> writeTimeTotals = getCAdvisorWriteTime(nameAdvisorChild);
@@ -499,6 +591,10 @@ public class ConvertDockerBodyFromCAdvisor {
     if (numTStamps != cpuLoadAvgs.size()
         || numTStamps != memUsages.size()
         || numTStamps != rxDroppeds.size()
+        || numTStamps != rxBytess.size()
+        || numTStamps != rxPacketss.size()
+        || numTStamps != txBytess.size()
+        || numTStamps != txPacketss.size()
         || numTStamps != ioTimeTotals.size()
         || numTStamps != readTimeTotals.size()
         || numTStamps != writeTimeTotals.size()
@@ -524,6 +620,18 @@ public class ConvertDockerBodyFromCAdvisor {
       long rxDropped =
           getSafeListElement(rxDroppeds, i, defaultLongVal).longValue();
 
+      long rxBytes =
+          getSafeListElement(rxBytess, i, defaultLongVal).longValue();
+
+      long rxPackets =
+          getSafeListElement(rxPacketss, i, defaultLongVal).longValue();
+
+      long txBytes =
+          getSafeListElement(txBytess, i, defaultLongVal).longValue();
+
+      long txPackets =
+          getSafeListElement(txPacketss, i, defaultLongVal).longValue();
+
       long ioTime =
           getSafeListElement(ioTimeTotals, i, defaultLongVal).longValue();
 
@@ -542,6 +650,10 @@ public class ConvertDockerBodyFromCAdvisor {
                          .cpuLoadAvg(cpuLoadAvg)
                          .memUsage(memUsage)
                          .rxDropped(rxDropped)
+                         .rxBytes(rxBytes)
+                         .rxPackets(rxPackets)
+                         .txBytes(txBytes)
+                         .txPackets(txPackets)
                          .ioTime(ioTime)
                          .readTime(readTime)
                          .writeTime(writeTime)

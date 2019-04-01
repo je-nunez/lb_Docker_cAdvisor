@@ -53,6 +53,42 @@ public class LbCAdvisorInputStat {
   @Getter @Setter private long rxDropped = 0;
 
   /**
+   * The Network RX-Bytes sampled by cAdvisor during this statistic measure.
+   *
+   * @param rxBytes New value for the Network RX-Bytes of this measure.
+   * @return The current value of the Network RX-Bytes during this stat.
+   */
+  @Accessors(fluent = true)
+  @Getter @Setter private long rxBytes = 0;
+
+  /**
+   * The Network RX-Packets sampled by cAdvisor during this statistic measure.
+   *
+   * @param rxPackets New value for the Network RX-Packets of this measure.
+   * @return The current value of the Network RX-Packets during this stat.
+   */
+  @Accessors(fluent = true)
+  @Getter @Setter private long rxPackets = 0;
+
+  /**
+   * The Network TX-Bytes sampled by cAdvisor during this statistic measure.
+   *
+   * @param txBytes New value for the Network TX-Bytes of this measure.
+   * @return The current value of the Network TX-Bytes during this stat.
+   */
+  @Accessors(fluent = true)
+  @Getter @Setter private long txBytes = 0;
+
+  /**
+   * The Network TX-Packets sampled by cAdvisor during this statistic measure.
+   *
+   * @param txPackets New value for the Network TX-Packets of this measure.
+   * @return The current value of the Network TX-Packets during this stat.
+   */
+  @Accessors(fluent = true)
+  @Getter @Setter private long txPackets = 0;
+
+  /**
    * The FS IOTime (millisecs) sampled by cAdvisor during this statistic
    * measure. (cAdvisor takes this from /proc/diskstats in Linux.)
    *

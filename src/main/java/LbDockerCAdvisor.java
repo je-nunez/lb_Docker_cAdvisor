@@ -61,6 +61,27 @@ public final class LbDockerCAdvisor {
 
 
   /**
+   * The relative weights of timed metrics from cAdvisor about a docker
+   * container for their summarization into a single metric to return to the
+   * load balancer.
+   */
+  private final ConfigRelativeWeightsMetrics weightsMetrics;
+
+  /**
+   * From which properties file this program should read the relative weights
+   * of timed metrics from cAdvisor.
+   * @see weightsMetrics
+   */
+  private final String fnPropertiesRelWeightsMetrics =
+                                         "metric_weights.properties";
+
+  /**
+   * The memory of the last values of some timed metrics from cAdvisor that
+   * are accumulative counters.
+   */
+  private final MemoryLastValueAccumCounters memLastValues;
+
+  /**
   * Constructor. Saves the basic values to construct the Apache HttpClient to
   * the cAdvisor server.
   *
@@ -75,6 +96,11 @@ public final class LbDockerCAdvisor {
     this.srvCAdvisor = hostCAdvisor;
     this.portCAdvisor = portNumCAdvisor;
     this.httpProxy = httpProxyToCAdvisor;   // may be null: not to use one
+
+    weightsMetrics = new ConfigRelativeWeightsMetrics();
+    weightsMetrics.loadWeightsFromPropFile(fnPropertiesRelWeightsMetrics);
+
+    memLastValues = new MemoryLastValueAccumCounters();
   }
 
 
@@ -361,10 +387,89 @@ public final class LbDockerCAdvisor {
   protected double overallLoadFactor(
                               final List<LbCAdvisorInputStat> lstDockerStats
   ) {
-    // TODO: probably read from a config file the relative weights of each of
-    //       the cAdvisor metrics in LbCAdvisorInputStat, to calculate a
-    //       weighted overall load factor.
-    return 0.0;
+    // TODO:
+    // We only take the average of the samples in the time-period returned by
+    // cAdvisor. Probably a more powerful method could be using an ARIMA
+    // [AutoRegressive Integrated Moving Average] estimate.
+    // (E.g., using https://github.com/signaflo/java-timeseries#features)
+
+    int count = lstDockerStats.size();
+
+    double sumCpuLoadAvg = 0.0;
+    double sumMemUsage = 0.0;
+    double sumRxDropped = 0.0;
+    double sumIoTime = 0.0;
+    double sumReadTime = 0.0;
+    double sumWriteTime = 0.0;
+    double sumWeightedIoTime = 0.0;
+
+    sumCpuLoadAvg = lstDockerStats.stream()
+                    .mapToDouble(LbCAdvisorInputStat::cpuLoadAvg).average()
+                    .getAsDouble();
+
+    sumMemUsage = lstDockerStats.stream()
+                    .mapToLong(LbCAdvisorInputStat::memUsage).average()
+                    .getAsDouble();
+
+    LbCAdvisorInputStat latestStat = lstDockerStats.get(count - 1);
+    LbCAdvisorInputStat oldestStat = lstDockerStats.get(0);
+
+    if (memLastValues.lastRxDropped() == 0) {
+      sumRxDropped = latestStat.rxDropped() - oldestStat.rxDropped();
+    } else {
+      sumRxDropped = latestStat.rxDropped() - memLastValues.lastRxDropped();
+    }
+    memLastValues.lastRxDropped(latestStat.rxDropped());
+
+    if (memLastValues.lastIoTime() == 0) {
+      sumIoTime = latestStat.ioTime() - oldestStat.ioTime();
+    } else {
+      sumIoTime = latestStat.ioTime() - memLastValues.lastIoTime();
+    }
+    memLastValues.lastIoTime(latestStat.ioTime());
+
+    if (memLastValues.lastReadTime() == 0) {
+      sumReadTime = latestStat.readTime() - oldestStat.readTime();
+    } else {
+      sumReadTime = latestStat.readTime() - memLastValues.lastReadTime();
+    }
+    memLastValues.lastReadTime(latestStat.readTime());
+
+    if (memLastValues.lastWriteTime() == 0) {
+      sumWriteTime = latestStat.writeTime() - oldestStat.writeTime();
+    } else {
+      sumWriteTime = latestStat.writeTime() - memLastValues.lastWriteTime();
+    }
+    memLastValues.lastWriteTime(latestStat.writeTime());
+
+    if (memLastValues.lastWeightedIoTime() == 0) {
+      sumWeightedIoTime = latestStat.weightedIoTime()
+                            - oldestStat.weightedIoTime();
+    } else {
+      sumWeightedIoTime = latestStat.weightedIoTime()
+                            - memLastValues.lastWeightedIoTime();
+    }
+    memLastValues.lastWeightedIoTime(latestStat.weightedIoTime());
+
+
+    double result = (
+        weightsMetrics.rwCpuLoadAvg() * sumCpuLoadAvg
+
+        + weightsMetrics.rwMemUsage() * sumMemUsage
+
+        + weightsMetrics.rwRxDropped() * sumRxDropped
+
+        + weightsMetrics.rwIoTime() * sumIoTime
+
+        + weightsMetrics.rwReadTime() * sumReadTime
+
+        + weightsMetrics.rwWriteTime() * sumWriteTime
+
+        + weightsMetrics.rwWeightedIoTime() * sumWeightedIoTime
+    );
+
+    return result;
+
   }
 
   /**
