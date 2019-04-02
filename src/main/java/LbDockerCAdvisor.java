@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.HashMap;
 import java.util.List;
 
 // Apache HttpClient
@@ -77,9 +78,11 @@ public final class LbDockerCAdvisor {
 
   /**
    * The memory of the last values of some timed metrics from cAdvisor that
-   * are accumulative counters.
+   * are accumulative counters (per docker-container-id, which acts as the
+   * hash key).
    */
-  private final MemoryLastValueAccumCounters memLastValues;
+  private final HashMap<String, MemoryLastValueAccumCounters>
+      memPreviousStatValuesOfContainers;
 
   /**
   * Constructor. Saves the basic values to construct the Apache HttpClient to
@@ -100,7 +103,8 @@ public final class LbDockerCAdvisor {
     weightsMetrics = new ConfigRelativeWeightsMetrics();
     weightsMetrics.loadWeightsFromPropFile(fnPropertiesRelWeightsMetrics);
 
-    memLastValues = new MemoryLastValueAccumCounters();
+    memPreviousStatValuesOfContainers =
+      new HashMap<String,MemoryLastValueAccumCounters>();
   }
 
 
@@ -366,7 +370,22 @@ public final class LbDockerCAdvisor {
         });
 
         // this overallLoadFactor() is the value used for load-balancing
-        double currDockerLoadFactor = overallLoadFactor(dockerStats);
+        MemoryLastValueAccumCounters memPreviousStatValues =
+            memPreviousStatValuesOfContainers.get(currDockerId);
+        if (memPreviousStatValues == null) {
+          // TODO: in the above condition, we need to take care as well of the
+          //       case when the values of the previous-stats are found, but
+          //       they are too old, in which case it could be wise to discard
+          //       such old previous stat-values. Ie., the class
+          //       MemoryLastValueAccumCounters must save as well the
+          //       timestamp of when those previous stat-values where taken.
+          memPreviousStatValues = new MemoryLastValueAccumCounters();
+          memPreviousStatValuesOfContainers.put(currDockerId,
+                                                memPreviousStatValues);
+        }
+        double currDockerLoadFactor =
+            overallLoadFactor(dockerStats, memPreviousStatValues);
+
         System.out.format("Overall load factor of container %s: %f\n",
                           currDockerId, currDockerLoadFactor);
       }
@@ -385,7 +404,8 @@ public final class LbDockerCAdvisor {
   *         Docker container.
   */
   protected double overallLoadFactor(
-                              final List<LbCAdvisorInputStat> lstDockerStats
+                    final List<LbCAdvisorInputStat> lstDockerStats,
+                    MemoryLastValueAccumCounters containerLastStatValues
   ) {
     // TODO:
     // We only take the average of the samples in the time-period returned by
@@ -414,42 +434,45 @@ public final class LbDockerCAdvisor {
     LbCAdvisorInputStat latestStat = lstDockerStats.get(count - 1);
     LbCAdvisorInputStat oldestStat = lstDockerStats.get(0);
 
-    if (memLastValues.lastRxDropped() == 0) {
+    if (containerLastStatValues.lastRxDropped() == 0) {
       sumRxDropped = latestStat.rxDropped() - oldestStat.rxDropped();
     } else {
-      sumRxDropped = latestStat.rxDropped() - memLastValues.lastRxDropped();
+      sumRxDropped = latestStat.rxDropped()
+                       - containerLastStatValues.lastRxDropped();
     }
-    memLastValues.lastRxDropped(latestStat.rxDropped());
+    containerLastStatValues.lastRxDropped(latestStat.rxDropped());
 
-    if (memLastValues.lastIoTime() == 0) {
+    if (containerLastStatValues.lastIoTime() == 0) {
       sumIoTime = latestStat.ioTime() - oldestStat.ioTime();
     } else {
-      sumIoTime = latestStat.ioTime() - memLastValues.lastIoTime();
+      sumIoTime = latestStat.ioTime() - containerLastStatValues.lastIoTime();
     }
-    memLastValues.lastIoTime(latestStat.ioTime());
+    containerLastStatValues.lastIoTime(latestStat.ioTime());
 
-    if (memLastValues.lastReadTime() == 0) {
+    if (containerLastStatValues.lastReadTime() == 0) {
       sumReadTime = latestStat.readTime() - oldestStat.readTime();
     } else {
-      sumReadTime = latestStat.readTime() - memLastValues.lastReadTime();
+      sumReadTime = latestStat.readTime()
+                      - containerLastStatValues.lastReadTime();
     }
-    memLastValues.lastReadTime(latestStat.readTime());
+    containerLastStatValues.lastReadTime(latestStat.readTime());
 
-    if (memLastValues.lastWriteTime() == 0) {
+    if (containerLastStatValues.lastWriteTime() == 0) {
       sumWriteTime = latestStat.writeTime() - oldestStat.writeTime();
     } else {
-      sumWriteTime = latestStat.writeTime() - memLastValues.lastWriteTime();
+      sumWriteTime = latestStat.writeTime()
+                       - containerLastStatValues.lastWriteTime();
     }
-    memLastValues.lastWriteTime(latestStat.writeTime());
+    containerLastStatValues.lastWriteTime(latestStat.writeTime());
 
-    if (memLastValues.lastWeightedIoTime() == 0) {
+    if (containerLastStatValues.lastWeightedIoTime() == 0) {
       sumWeightedIoTime = latestStat.weightedIoTime()
                             - oldestStat.weightedIoTime();
     } else {
       sumWeightedIoTime = latestStat.weightedIoTime()
-                            - memLastValues.lastWeightedIoTime();
+                            - containerLastStatValues.lastWeightedIoTime();
     }
-    memLastValues.lastWeightedIoTime(latestStat.weightedIoTime());
+    containerLastStatValues.lastWeightedIoTime(latestStat.weightedIoTime());
 
 
     double result = (
