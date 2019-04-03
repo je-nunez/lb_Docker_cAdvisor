@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
@@ -31,6 +32,7 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
 // JSON-simple
+import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 
@@ -104,7 +106,7 @@ public final class LbDockerCAdvisor {
     weightsMetrics.loadWeightsFromPropFile(fnPropertiesRelWeightsMetrics);
 
     memPreviousStatValuesOfContainers =
-      new HashMap<String,MemoryLastValueAccumCounters>();
+      new HashMap<String, MemoryLastValueAccumCounters>();
   }
 
 
@@ -306,7 +308,7 @@ public final class LbDockerCAdvisor {
   * Get the machine metric statistics from cAdvisor, by
   *     GET-ing the cAdvisor's "/api/v1.3/machine" REST API.
   */
-  protected void getMachineStats() {
+  protected Object getMachineStats() {
     // false means: don't dump http headers nor response body for debugging
     CloseableHttpResponse respMachStats = simpleHttpGetRequest(
                                       buildCAdvisorUrl("/api/v1.3/machine"),
@@ -323,7 +325,9 @@ public final class LbDockerCAdvisor {
       } catch (ParseException e) {
         e.printStackTrace();
       }
-      System.out.println("DEBUG: Parsed MachineStats\n" + obj);
+      return obj;
+    } else {
+      return null;
     }
   }
 
@@ -332,7 +336,7 @@ public final class LbDockerCAdvisor {
   * Get the Docker metric statistics from cAdvisor, by
   *     GET-ing the cAdvisor's "/api/v1.3/docker" REST API.
   */
-  protected void getDockerStats() {
+  protected List<DockerContainerPlusStats> getDockerStats() {
     // false means: don't dump http headers nor response body for debugging
     CloseableHttpResponse respDockerStats = simpleHttpGetRequest(
                                       buildCAdvisorUrl("/api/v1.3/docker"),
@@ -352,59 +356,46 @@ public final class LbDockerCAdvisor {
 
       // like zip()-ing both lists dockerIds and memLimits
       assert (dockerIds.size() == memLimits.size());
+
+      ArrayList<DockerContainerPlusStats> dockerDescripts =
+          new ArrayList<DockerContainerPlusStats>(dockerIds.size());
+
       for (int idx = 0; idx < dockerIds.size(); idx++) {
         String currDockerId = dockerIds.get(idx);
-        System.out.format("%s %d\n", currDockerId, memLimits.get(idx));
-
         List<LbCAdvisorInputStat> dockerStats =
             converter.getCAdvisorCpuMemStats(currDockerId);
 
-        dockerStats.forEach(stat -> {
-          System.out.format("%d: %f %d %d %d %d %d %d\n",
-                            stat.epochTimeStampMilli(),
-                            // Values of the metrics sampled at this epoch:
-                            stat.cpuLoadAvg(), stat.memUsage(),
-                            stat.rxDropped(), stat.ioTime(),
-                            stat.readTime(), stat.writeTime(),
-                            stat.weightedIoTime());
-        });
+        DockerContainerPlusStats dockerDescription =
+            new DockerContainerPlusStats()
+                 .dockerId(currDockerId)
+                 .memLimit(memLimits.get(idx))
+                 .dockerStats(dockerStats);
 
-        // this overallLoadFactor() is the value used for load-balancing
-        MemoryLastValueAccumCounters memPreviousStatValues =
-            memPreviousStatValuesOfContainers.get(currDockerId);
-        if (memPreviousStatValues == null) {
-          // TODO: in the above condition, we need to take care as well of the
-          //       case when the values of the previous-stats are found, but
-          //       they are too old, in which case it could be wise to discard
-          //       such old previous stat-values. Ie., the class
-          //       MemoryLastValueAccumCounters must save as well the
-          //       timestamp of when those previous stat-values where taken.
-          memPreviousStatValues = new MemoryLastValueAccumCounters();
-          memPreviousStatValuesOfContainers.put(currDockerId,
-                                                memPreviousStatValues);
-        }
-        double currDockerLoadFactor =
-            overallLoadFactor(dockerStats, memPreviousStatValues);
-
-        System.out.format("Overall load factor of container %s: %f\n",
-                          currDockerId, currDockerLoadFactor);
+        dockerDescripts.add(idx, dockerDescription);
       }
 
+      return dockerDescripts;
+    } else {
+      return null;
     }
   }
 
   /**
-  * Get the simplified, overall load factor of a Docker container given its
-  * list of metric statistics. (Greater values of this simplified, overall
-  * measure means greater current load in the Docker container, so the less
-  * probable, relatively, it should be chosen for the next service requests.)
+  * Get the simplified, overall load factor of a Docker container.
+  * (Greater values of this simplified, overall measure means greater current
+  * load in the Docker container, so the less probable, relatively, it should
+  * be chosen for the next service requests.)
   *
-  * @param lstDockerStats the list of metric statistics of a Docker container.
+  * @param dockerDescript the docker container and its statistics
+  * @param machineMemCapacity the memory capacity of this machine
+  * @param containerLastStatValues the last, previous values for some
+  *                                accumulative stats for this container
   * @return a double value with the simplified, overall load factor of this
   *         Docker container.
   */
   protected double overallLoadFactor(
-                    final List<LbCAdvisorInputStat> lstDockerStats,
+                    final DockerContainerPlusStats dockerDescript,
+                    long machineMemCapacity,
                     MemoryLastValueAccumCounters containerLastStatValues
   ) {
     // TODO:
@@ -413,82 +404,93 @@ public final class LbDockerCAdvisor {
     // [AutoRegressive Integrated Moving Average] estimate.
     // (E.g., using https://github.com/signaflo/java-timeseries#features)
 
-    int count = lstDockerStats.size();
+    List<LbCAdvisorInputStat> dockerStats = dockerDescript.dockerStats();
 
-    double sumCpuLoadAvg = 0.0;
-    double sumMemUsage = 0.0;
-    double sumRxDropped = 0.0;
-    double sumIoTime = 0.0;
-    double sumReadTime = 0.0;
-    double sumWriteTime = 0.0;
-    double sumWeightedIoTime = 0.0;
+    double avgCpuLoadAvg = 0.0;
+    double avgMemUsage = 0.0;
+    double accumRxDropped = 0.0;
+    double accumIoTime = 0.0;
+    double accumReadTime = 0.0;
+    double accumWriteTime = 0.0;
+    double accumWeightedIoTime = 0.0;
 
-    sumCpuLoadAvg = lstDockerStats.stream()
+    avgCpuLoadAvg = dockerStats.stream()
                     .mapToDouble(LbCAdvisorInputStat::cpuLoadAvg).average()
                     .getAsDouble();
 
-    sumMemUsage = lstDockerStats.stream()
+    avgMemUsage = dockerStats.stream()
                     .mapToLong(LbCAdvisorInputStat::memUsage).average()
                     .getAsDouble();
+    // we need to normalize the avgMemUsage
+    long minDockerMemCapacity = 1;
+    if (machineMemCapacity > 0 && dockerDescript.memLimit() != null) {
+      minDockerMemCapacity = Math.min(machineMemCapacity,
+                                        dockerDescript.memLimit().longValue());
+    } else if (machineMemCapacity > 0) {
+      minDockerMemCapacity = machineMemCapacity;
+    } else if (dockerDescript.memLimit() != null) {
+      minDockerMemCapacity = dockerDescript.memLimit().longValue();
+    }
+    avgMemUsage /= (minDockerMemCapacity / 100.0);  // normalize to 100%
 
-    LbCAdvisorInputStat latestStat = lstDockerStats.get(count - 1);
-    LbCAdvisorInputStat oldestStat = lstDockerStats.get(0);
+    LbCAdvisorInputStat latestStat = dockerStats.get(dockerStats.size() - 1);
+    LbCAdvisorInputStat oldestStat = dockerStats.get(0);
 
     if (containerLastStatValues.lastRxDropped() == 0) {
-      sumRxDropped = latestStat.rxDropped() - oldestStat.rxDropped();
+      accumRxDropped = latestStat.rxDropped() - oldestStat.rxDropped();
     } else {
-      sumRxDropped = latestStat.rxDropped()
+      accumRxDropped = latestStat.rxDropped()
                        - containerLastStatValues.lastRxDropped();
     }
     containerLastStatValues.lastRxDropped(latestStat.rxDropped());
 
     if (containerLastStatValues.lastIoTime() == 0) {
-      sumIoTime = latestStat.ioTime() - oldestStat.ioTime();
+      accumIoTime = latestStat.ioTime() - oldestStat.ioTime();
     } else {
-      sumIoTime = latestStat.ioTime() - containerLastStatValues.lastIoTime();
+      accumIoTime = latestStat.ioTime() - containerLastStatValues.lastIoTime();
     }
     containerLastStatValues.lastIoTime(latestStat.ioTime());
 
     if (containerLastStatValues.lastReadTime() == 0) {
-      sumReadTime = latestStat.readTime() - oldestStat.readTime();
+      accumReadTime = latestStat.readTime() - oldestStat.readTime();
     } else {
-      sumReadTime = latestStat.readTime()
+      accumReadTime = latestStat.readTime()
                       - containerLastStatValues.lastReadTime();
     }
     containerLastStatValues.lastReadTime(latestStat.readTime());
 
     if (containerLastStatValues.lastWriteTime() == 0) {
-      sumWriteTime = latestStat.writeTime() - oldestStat.writeTime();
+      accumWriteTime = latestStat.writeTime() - oldestStat.writeTime();
     } else {
-      sumWriteTime = latestStat.writeTime()
+      accumWriteTime = latestStat.writeTime()
                        - containerLastStatValues.lastWriteTime();
     }
     containerLastStatValues.lastWriteTime(latestStat.writeTime());
 
     if (containerLastStatValues.lastWeightedIoTime() == 0) {
-      sumWeightedIoTime = latestStat.weightedIoTime()
+      accumWeightedIoTime = latestStat.weightedIoTime()
                             - oldestStat.weightedIoTime();
     } else {
-      sumWeightedIoTime = latestStat.weightedIoTime()
+      accumWeightedIoTime = latestStat.weightedIoTime()
                             - containerLastStatValues.lastWeightedIoTime();
     }
     containerLastStatValues.lastWeightedIoTime(latestStat.weightedIoTime());
 
 
     double result = (
-        weightsMetrics.rwCpuLoadAvg() * sumCpuLoadAvg
+        weightsMetrics.rwCpuLoadAvg() * avgCpuLoadAvg
 
-        + weightsMetrics.rwMemUsage() * sumMemUsage
+        + weightsMetrics.rwMemUsage() * avgMemUsage
 
-        + weightsMetrics.rwRxDropped() * sumRxDropped
+        + weightsMetrics.rwRxDropped() * accumRxDropped
 
-        + weightsMetrics.rwIoTime() * sumIoTime
+        + weightsMetrics.rwIoTime() * accumIoTime
 
-        + weightsMetrics.rwReadTime() * sumReadTime
+        + weightsMetrics.rwReadTime() * accumReadTime
 
-        + weightsMetrics.rwWriteTime() * sumWriteTime
+        + weightsMetrics.rwWriteTime() * accumWriteTime
 
-        + weightsMetrics.rwWeightedIoTime() * sumWeightedIoTime
+        + weightsMetrics.rwWeightedIoTime() * accumWeightedIoTime
     );
 
     return result;
@@ -500,8 +502,55 @@ public final class LbDockerCAdvisor {
   *     the metric results.
   */
   public void getCAdvisorStats() {
-    getMachineStats();
-    getDockerStats();
+
+    long machineMemCapacity = -1;
+    Object machineStats = getMachineStats();
+    if (machineStats != null) {
+      System.out.println("DEBUG: Parsed MachineStats\n" + machineStats);
+      if (machineStats instanceof JSONObject) {
+        Object memCapacity =
+            ((JSONObject) machineStats).get("memory_capacity");
+        if (memCapacity != null && memCapacity instanceof Number) {
+          machineMemCapacity = ((Number) memCapacity).longValue();
+        }
+      }
+    }
+
+    List<DockerContainerPlusStats> dockerDescripts = getDockerStats();
+    if (dockerDescripts == null) {
+      System.err.println("ERROR: Couldn't retrieve cAdvisor statistics\n");
+    }
+
+    for (int idx = 0; idx < dockerDescripts.size(); idx++) {
+
+      DockerContainerPlusStats dockerDescript = dockerDescripts.get(idx);
+      assert (dockerDescript != null);
+
+      System.out.println(dockerDescript);
+
+      String currDockerId = dockerDescript.dockerId();
+
+      // this overallLoadFactor() is the value used for load-balancing
+      MemoryLastValueAccumCounters memPreviousStatValues =
+          memPreviousStatValuesOfContainers.get(currDockerId);
+      if (memPreviousStatValues == null) {
+        // TODO: in the above condition, we need to take care as well of the
+        //       case when the values of the previous-stats are found, but
+        //       they are too old, in which case it could be wise to discard
+        //       such old previous stat-values. Ie., the class
+        //       MemoryLastValueAccumCounters must save as well the
+        //       timestamp of when those previous stat-values where taken.
+        memPreviousStatValues = new MemoryLastValueAccumCounters();
+        memPreviousStatValuesOfContainers.put(currDockerId,
+                                              memPreviousStatValues);
+      }
+      double currDockerLoadFactor =
+          overallLoadFactor(dockerDescript, machineMemCapacity,
+                            memPreviousStatValues);
+
+      System.out.format("Overall load factor of container %s: %f\n",
+                        currDockerId, currDockerLoadFactor);
+    }
   }
 
   /**
