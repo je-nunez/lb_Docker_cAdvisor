@@ -390,10 +390,11 @@ public final class LbDockerCAdvisor {
   * @param machineMemCapacity the memory capacity of this machine
   * @param containerLastStatValues the last, previous values for some
   *                                accumulative stats for this container
-  * @return a double value with the simplified, overall load factor of this
-  *         Docker container.
+  * @return a non-negative long value with the simplified, overall load factor
+  *         of this Docker container (a long in TEXTUAL-CONVENTION
+  *         CounterBasedGauge64 in IETF RFC 2856, in "DISPLAY-HINT d-6")
   */
-  protected double overallLoadFactor(
+  protected long overallLoadFactor(
                     final DockerContainerPlusStats dockerDescript,
                     long machineMemCapacity,
                     MemoryLastValueAccumCounters containerLastStatValues
@@ -493,8 +494,22 @@ public final class LbDockerCAdvisor {
         + weightsMetrics.rwWeightedIoTime() * accumWeightedIoTime
     );
 
-    return result;
-
+    // convert the double value above to a long value in the format
+    // "DISPLAY-HINT d-6", for long values are simpler than double values
+    // (long value in the sense of the TEXTUAL-CONVENTION CounterBasedGauge64
+    // in IETF RFC 2856)
+    long longVal = (long) (result * 1000000L);  // * 1000000 = DISPLAY-HINT d-6
+    if (longVal < 0) {
+      System.err.println(
+          String.format("WARN: The overall, summarized load factor for a "
+                        + "Docker container returned a negative value: %d. "
+                        + "Truncating it to zero (0) for CounterBasedGauge64 "
+                        + "in RFC 2856 doesn't support negatives.", longVal)
+      );
+      return 0;
+    } else {
+      return longVal;
+    }
   }
 
   /**
@@ -544,11 +559,11 @@ public final class LbDockerCAdvisor {
         memPreviousStatValuesOfContainers.put(currDockerId,
                                               memPreviousStatValues);
       }
-      double currDockerLoadFactor =
+      long currDockerLoadFactor =
           overallLoadFactor(dockerDescript, machineMemCapacity,
                             memPreviousStatValues);
 
-      System.out.format("Overall load factor of container %s: %f\n",
+      System.out.format("Overall load factor of container %s: %d\n",
                         currDockerId, currDockerLoadFactor);
     }
   }
