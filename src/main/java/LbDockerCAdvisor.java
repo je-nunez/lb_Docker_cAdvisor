@@ -390,11 +390,15 @@ public final class LbDockerCAdvisor {
   * @param machineMemCapacity the memory capacity of this machine
   * @param containerLastStatValues the last, previous values for some
   *                                accumulative stats for this container
-  * @return a non-negative long value with the simplified, overall load factor
-  *         of this Docker container (a long in TEXTUAL-CONVENTION
-  *         CounterBasedGauge64 in IETF RFC 2856, in "DISPLAY-HINT d-6")
+  * @return a non-negative int value with the simplified, overall load factor
+  *         of this Docker container (an int in "DISPLAY-HINT d-3" in IETF
+  *         RFC 2579)
   */
-  protected long overallLoadFactor(
+
+  // the current version snmp4j doesn't seem to support CounterBasedGauge64 in
+  // IETF RFC 2856, and this is why we need to return an int instead of
+  // returning a long
+  protected int overallLoadFactor(
                     final DockerContainerPlusStats dockerDescript,
                     long machineMemCapacity,
                     MemoryLastValueAccumCounters containerLastStatValues
@@ -478,7 +482,7 @@ public final class LbDockerCAdvisor {
     containerLastStatValues.lastWeightedIoTime(latestStat.weightedIoTime());
 
 
-    double result = (
+    double doubleVal = (
         weightsMetrics.rwCpuLoadAvg() * avgCpuLoadAvg
 
         + weightsMetrics.rwMemUsage() * avgMemUsage
@@ -494,21 +498,23 @@ public final class LbDockerCAdvisor {
         + weightsMetrics.rwWeightedIoTime() * accumWeightedIoTime
     );
 
-    // convert the double value above to a long value in the format
-    // "DISPLAY-HINT d-6", for long values are simpler than double values
-    // (long value in the sense of the TEXTUAL-CONVENTION CounterBasedGauge64
-    // in IETF RFC 2856)
-    long longVal = (long) (result * 1000000L);  // * 1000000 = DISPLAY-HINT d-6
-    if (longVal < 0) {
+    // convert the double value above to an int value in the format
+    // "DISPLAY-HINT d-3"
+    // Note: long values are not supported yet since the TEXTUAL-CONVENTION
+    // CounterBasedGauge64 in IETF RFC 285 doesn't seem to be supported by
+    // the current version of snmp4j
+
+    int intVal = (int) (doubleVal * 1000);  // * 1000 = DISPLAY-HINT d-3
+    if (intVal < 0) {
       System.err.println(
           String.format("WARN: The overall, summarized load factor for a "
                         + "Docker container returned a negative value: %d. "
-                        + "Truncating it to zero (0) for CounterBasedGauge64 "
-                        + "in RFC 2856 doesn't support negatives.", longVal)
+                        + "Truncating it to zero (0) for Gauge32 "
+                        + "in RFC 2578 doesn't support negatives.", intVal)
       );
       return 0;
     } else {
-      return longVal;
+      return intVal;
     }
   }
 
@@ -536,6 +542,9 @@ public final class LbDockerCAdvisor {
       System.err.println("ERROR: Couldn't retrieve cAdvisor statistics\n");
     }
 
+    List<LbCAdvisorResultStat> lbResultStats =
+        new ArrayList<LbCAdvisorResultStat>(dockerDescripts.size());
+
     for (int idx = 0; idx < dockerDescripts.size(); idx++) {
 
       DockerContainerPlusStats dockerDescript = dockerDescripts.get(idx);
@@ -559,13 +568,26 @@ public final class LbDockerCAdvisor {
         memPreviousStatValuesOfContainers.put(currDockerId,
                                               memPreviousStatValues);
       }
-      long currDockerLoadFactor =
+      int currDockerLoadFactor =
           overallLoadFactor(dockerDescript, machineMemCapacity,
                             memPreviousStatValues);
 
       System.out.format("Overall load factor of container %s: %d\n",
                         currDockerId, currDockerLoadFactor);
+
+      LbCAdvisorResultStat lbResultStat =
+            new LbCAdvisorResultStat()
+                 .dockerId(currDockerId)
+                 .lbFinalStat(currDockerLoadFactor);
+
+      lbResultStats.add(idx, lbResultStat);
     }
+
+    // TODO: we need to pass the just calculated list of result metrics for
+    //       the load balancer, in "lbResultStats", to the SNMP agent module
+    //       (that is the one which exports those metrics to the load
+    //       balancer).
+
   }
 
   /**
