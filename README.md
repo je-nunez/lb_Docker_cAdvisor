@@ -1,10 +1,11 @@
 # lb_Docker_cAdvisor
 
-An LB for a docker cluster taking metrics from cAdvisor
+Dynamic, run-time weights for a LB about a docker service cluster taking
+input metrics from cAdvisor
 [https://github.com/google/cadvisor](https://github.com/google/cadvisor)
 
-(Another option would be to take the metrics from the Docker Engine API
-directly,
+(Another option where to take the input metrics would be to take the
+metrics from the Docker Engine API directly,
 [https://docs.docker.com/engine/api/v1.21/](https://docs.docker.com/engine/api/v1.21/),
 -e.g., the query `GET /containers/(id or name)/stats`-, or to take them from
 monitoring systems like Prometheus.)
@@ -19,6 +20,12 @@ subject to change. The documentation can be inaccurate.
 Run Maven:
 
         mvn
+
+By default, it queries the cAdvisor at `localhost:8080` address. (In fact, the
+program accepts the hostname/IP address of the cAdvisor server as the first
+command-line argument -add this address explicitly in the Maven `pom.xml` in
+this project, under the element `commandlineArgs`. To change the port name to
+query cAdvisor from the default of 8080 also is easily doable.)
 
 # Notes
 
