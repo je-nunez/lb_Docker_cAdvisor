@@ -14,6 +14,9 @@
       <mainClass>LbDockerCAdvisor</mainClass>
       <maven.compile.java.version>1.8</maven.compile.java.version>
       <shadedClassifierName>executable</shadedClassifierName>
+
+      <cAdvisorHost>localhost</cAdvisorHost>
+      <cAdvisorPort>8080</cAdvisorPort>
   </properties>
 
   <dependencies>
@@ -72,22 +75,6 @@
       <defaultGoal>clean compile package exec:exec</defaultGoal>
       <plugins>
          <plugin>
-              <groupId>com.jolira</groupId>
-              <artifactId>onejar-maven-plugin</artifactId>
-              <version>1.4.4</version>
-              <executions>
-                  <execution>
-                      <configuration>
-                          <mainClass>${mainClass}</mainClass>
-                          <classifier>onejar</classifier>
-                      </configuration>
-                      <goals>
-                          <goal>one-jar</goal>
-                      </goals>
-                  </execution>
-              </executions>
-         </plugin>
-         <plugin>
               <groupId>org.apache.maven.plugins</groupId>
               <artifactId>maven-compiler-plugin</artifactId>
               <version>3.8.0</version>
@@ -112,23 +99,48 @@
          </plugin>
 
          <plugin>
+           <artifactId>maven-assembly-plugin</artifactId>
+           <configuration>
+             <archive>
+               <manifest>
+                 <mainClass>${mainClass}</mainClass>
+               </manifest>
+             </archive>
+             <descriptorRefs>
+               <descriptorRef>jar-with-dependencies</descriptorRef>
+             </descriptorRefs>
+           </configuration>
+           <executions>
+             <execution>
+               <id>make-assembly</id>
+               <phase>package</phase>
+               <goals>
+                 <goal>single</goal>
+               </goals>
+             </execution>
+           </executions>
+         </plugin>
+
+         <plugin>
               <groupId>org.codehaus.mojo</groupId>
               <artifactId>exec-maven-plugin</artifactId>
               <version>1.6.0</version>
-              <executions>
-                  <execution>
-                      <goals>
-                          <goal>exec</goal>
-                      </goals>
-                   </execution>
-              </executions>
-
               <configuration>
                   <executable>java</executable>
-                  <commandlineArgs>
-                      -Done-jar.main.class=${mainClass} -jar ${project.build.directory}/${project.build.finalName}.one-jar.jar
-                  </commandlineArgs>
+                  <arguments>
+                      <argument>-cp</argument>
+                      <argument>target/${mainClass}-0.0.1-jar-with-dependencies.jar</argument>
+                      <argument>${mainClass}</argument>
+                      <argument>${cAdvisorHost}</argument>
+                      <argument>${cAdvisorPort}</argument>
+                  </arguments>
               </configuration>
+              <executions>
+                  <execution>
+                      <id>execute-program</id>
+                      <goals><goal>java</goal></goals>
+                  </execution>
+              </executions>
           </plugin>
       </plugins>
   </build>

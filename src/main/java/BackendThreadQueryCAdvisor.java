@@ -109,8 +109,8 @@ public final class BackendThreadQueryCAdvisor extends Thread {
         new Thread.UncaughtExceptionHandler() {
             @Override
             public void uncaughtException(Thread t, Throwable e) {
-              System.err.println("Exception raised in thread: " + t
-                                 + ":\n" + e);
+              System.err.println("Exception raised in thread: " + t);
+              e.printStackTrace();
             }
         }
     );
@@ -278,7 +278,7 @@ public final class BackendThreadQueryCAdvisor extends Thread {
   protected CloseableHttpResponse simpleHttpGetRequest(
                                          final URI uri,
                                          final boolean dumpRequestHeaders
-  ) {
+  ) throws IOException {
 
     CloseableHttpClient httpClient = createHttpClient();
 
@@ -290,22 +290,12 @@ public final class BackendThreadQueryCAdvisor extends Thread {
       return null;
     }
 
-    try {
-
-      CloseableHttpResponse webServerResponse = httpClient.execute(httpGet);
-      if (dumpRequestHeaders) {
-        dumpHttpResponse(webServerResponse);
-      }
-
-      return webServerResponse;
-
-    } catch (ClientProtocolException e) {
-      e.printStackTrace();
-    } catch (IOException e) {
-      e.printStackTrace();
+    CloseableHttpResponse webServerResponse = httpClient.execute(httpGet);
+    if (dumpRequestHeaders) {
+      dumpHttpResponse(webServerResponse);
     }
 
-    return null;
+    return webServerResponse;
   }
 
   /**
@@ -333,7 +323,7 @@ public final class BackendThreadQueryCAdvisor extends Thread {
   * Get the machine metric statistics from cAdvisor, by
   *     GET-ing the cAdvisor's "/api/v1.3/machine" REST API.
   */
-  protected Object getMachineStats() {
+  protected Object getMachineStats() throws IOException {
     // false means: don't dump http headers nor response body for debugging
     CloseableHttpResponse respMachStats = simpleHttpGetRequest(
                                       buildCAdvisorUrl("/api/v1.3/machine"),
@@ -361,7 +351,8 @@ public final class BackendThreadQueryCAdvisor extends Thread {
   * Get the Docker metric statistics from cAdvisor, by
   *     GET-ing the cAdvisor's "/api/v1.3/docker" REST API.
   */
-  protected List<DockerContainerPlusStats> getDockerStats() {
+  protected List<DockerContainerPlusStats> getDockerStats()
+      throws IOException {
     // false means: don't dump http headers nor response body for debugging
     CloseableHttpResponse respDockerStats = simpleHttpGetRequest(
                                       buildCAdvisorUrl("/api/v1.3/docker"),
@@ -547,7 +538,7 @@ public final class BackendThreadQueryCAdvisor extends Thread {
   * getCAdvisorStats(): calls all the methods which query cAdvisor and parse
   *     the metric results.
   */
-  public void getCAdvisorStats() {
+  public void getCAdvisorStats() throws IOException {
 
     long machineMemCapacity = -1;
     Object machineStats = getMachineStats();
@@ -618,7 +609,7 @@ public final class BackendThreadQueryCAdvisor extends Thread {
   /**
   * run() method of the class.
   * @throws Exception some unexpected exception happened querying cAdvisor in
-  *     this example.
+  *                   this example.
   */
   @Override
   public void run() {
@@ -630,6 +621,8 @@ public final class BackendThreadQueryCAdvisor extends Thread {
     } catch (InterruptedException e) {
       // Thrown when a thread is waiting, sleeping, or otherwise occupied,
       // and the thread is interrupted, either before or during the activity.
+      e.printStackTrace();
+    } catch (IOException e) {
       e.printStackTrace();
     }
   }

@@ -1,8 +1,10 @@
 # lb_Docker_cAdvisor
 
-Dynamic, run-time weights for a LB about a docker service cluster taking
-input metrics from cAdvisor
-[https://github.com/google/cadvisor](https://github.com/google/cadvisor)
+Agent that parses metrics about a Docker service cluster taking input metrics
+from cAdvisor
+[https://github.com/google/cadvisor](https://github.com/google/cadvisor),
+and then summarizes those input metrics into a single scalar value to implement
+Dynamic Weighted Round Robin for a LB.
 
 (Another option where to take the input metrics would be to take the
 metrics from the Docker Engine API directly,
@@ -24,8 +26,9 @@ Run Maven:
 By default, it queries the cAdvisor at `localhost:8080` address. (In fact, the
 program accepts the hostname/IP address of the cAdvisor server as the first
 command-line argument -add this address explicitly in the Maven `pom.xml` in
-this project, under the element `commandlineArgs`. To change the port name to
-query cAdvisor from the default of 8080 also is easily doable.)
+this project, for the corresponding `argument` element. To change the port name
+to query cAdvisor from the default of 8080 also is easily doable in the next
+`argument` element in the `pom.xml` file.)
 
 # Notes
 

@@ -35,11 +35,15 @@ public final class LbDockerCAdvisor {
 
     Thread.currentThread().setName("LbDockerCAdvisor: main thread");
 
-    final int defaultCAdvisorPort = 8080;
+    int portCAdvisor = 8080;
     String hostCAdvisor = "localhost";
     if (args.length >= 1) {
       // the first argument is the address of CAdvisor
       hostCAdvisor = args[0];
+    }
+    if (args.length >= 2) {
+      // the second argument is the port number of CAdvisor
+      portCAdvisor = Integer.parseInt(args[1]);
     }
 
     // don't use an http-proxy to connect to cAdvisor
@@ -52,7 +56,7 @@ public final class LbDockerCAdvisor {
 
     BackendThreadQueryCAdvisor querycAdvisor =
         new BackendThreadQueryCAdvisor(hostCAdvisor,
-                                 defaultCAdvisorPort,
+                                 portCAdvisor,
                                  httpProxy,
                                  delayBetweenQueryCyclesMillisec);
     querycAdvisor.start();
