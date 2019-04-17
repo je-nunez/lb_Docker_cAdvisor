@@ -1,9 +1,9 @@
 # lb_Docker_cAdvisor
 
-Agent that parses metrics about a Docker service cluster taking input metrics
-from cAdvisor
-[https://github.com/google/cadvisor](https://github.com/google/cadvisor),
-and then summarizes those input metrics into a single scalar value to implement
+Agent that parses input metrics from cAdvisor
+[https://github.com/google/cadvisor](https://github.com/google/cadvisor)
+about a Docker service cluster,
+and then summarizes such input metrics into a single scalar value to implement
 Dynamic Weighted Round Robin for a LB.
 
 (Another option where to take the input metrics would be to take the
